@@ -67,5 +67,15 @@ fi
 
 # Reiniciar Apache
 sudo systemctl restart apache2
+# Habilitar userdir
+a2enmod userdir
+systemctl restart apache2
 
+# Configurar directorio web para el usuario
+USER_HOME=$(eval echo ~$USER_NAME)
+WEB_PATH="$USER_HOME/$WEB_DIR"
+
+mkdir -p "$WEB_PATH"
+chown -R $USER_NAME:$USER_NAME "$WEB_PATH"
+chmod 755 "$USER_HOME"
 echo "🎉 Instalación y configuración completa. Sitio funcionando en http://localhost/"
