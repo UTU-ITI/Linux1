@@ -40,7 +40,7 @@ check_sudo() {
 detect_os() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
-        OS=$ID
+        OS=$ID 
         OS_VERSION=$VERSION_ID
     else
         error "No se pudo detectar la distribución de Linux"
@@ -68,10 +68,15 @@ update_system() {
 install_basic_tools() {
     log "Instalando herramientas básicas..."
     case "$OS" in
-        ubuntu|debian)
+        ubuntu)
             sudo apt-get install -y -qq git curl wget rsync openssh-client openssh-server \
                 software-properties-common apt-transport-https ca-certificates \
-                gnupg-agent unzip make nano htop vim
+                gnupg-agent unzip make nano htop tree net-tools 
+            ;;
+        debian)
+            sudo apt-get install -y -qq git curl wget rsync openssh-client openssh-server \
+                 apt-transport-https ca-certificates \
+                gnupg-agent unzip make nano htop tree net-tools 
             ;;
         centos|rhel|fedora)
             sudo yum install -y -q git curl wget rsync openssh-clients openssh-server \
@@ -89,13 +94,26 @@ install_docker() {
     fi
 
     case "$OS" in
-        ubuntu|debian)
+        ubuntu)
             # Agregar repositorio oficial de Docker
             curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
             sudo add-apt-repository \
                 "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
                 $(lsb_release -cs) \
                 stable"
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io
+            ;;
+            debian)
+            # Agregar repositorio oficial de Docker
+            sudo install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            sudo chmod a+r /etc/apt/keyrings/docker.gpg
+            # Add the repository to Apt sources:
+            echo \
+            "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+            $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+            sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
             sudo apt-get update -qq
             sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io
             ;;
