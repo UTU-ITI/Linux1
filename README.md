@@ -1,121 +1,46 @@
-# Linux1
-## Practicos y Documentación Introducción a Linux
+# 🛠️ Script de Provisionamiento Linux Multi-Sistema (`provision.sh`)
 
-📄 Script de instalación LAMP con configuración por .env
+Este script de Bash automatiza la configuración inicial de un entorno de desarrollo basado en **Docker/Docker Compose** para aplicaciones web (ej. Laravel) en distribuciones Linux como **Debian**, **Ubuntu** y **CentOS/RHEL/Fedora**.
 
-Este documento detalla la instalación y configuración automática de un entorno LAMP (Linux + Apache + MySQL + PHP) usando un script bash y un archivo .env para los parámetros del sistema.
+Su objetivo es estandarizar y asegurar la configuración de herramientas críticas como **SSH**, **Docker** y la clonación del repositorio de forma **segura e idempotente** (ejecutable varias veces sin causar efectos colaterales).
 
-🔎 Requisitos previos
+---
 
-Ubuntu/Debian
+## ⚙️ Flujo de Ejecución y Configuración
 
-Acceso root o sudo
+El script sigue un flujo de trabajo lógico y adaptable, garantizando que cada paso sea robusto y bien documentado:
 
-Conexión a internet
+### 1. Pre-chequeos y Detección (`check_sudo`, `detect_os`)
 
-🔐 Archivo .env de ejemplo (.env.example)
+* **Sudo y Seguridad:** La función `check_sudo` verifica la existencia de `sudo`. Si no se encuentra en una distribución compatible (como **Debian**), el script proporciona la instrucción exacta (`su -c 'apt-get install sudo -y'`) para instalarlo como *root*, resolviendo el problema de adaptabilidad.
+* **Detección de OS:** Utiliza `/etc/os-release` para identificar la distribución. Esto es vital en la instalación de Docker, ya que permite obtener el **nombre en código** de la versión (ej. `$VERSION_CODENAME`) necesario para configurar los repositorios de Docker.
 
-GIT_REPO=https://github.com/usuario/repositorio.git
-SYSTEM_USER=proyecto
-MYSQL_ROOT_PASSWORD=RootPass123
-DB_NAME=proyecto_db
-DB_USER=proyecto_user
-DB_PASS=Segura123
+### 2. Gestión de la Configuración (`load_or_prompt_config`)
 
-📁 Contenido del script setup_php_stack.sh
+* **Persistencia:** La función `load_or_prompt_config` intenta cargar las variables (`REPO_URL`, `PROJECT_DIR`, `ENV_MODE`) desde el archivo **`.provision.conf`** usando el comando `source`. Esto hace que las ejecuciones posteriores sean no interactivas.
+* **Ambientes:** Define el ambiente de trabajo (`dev` o `test`) y, en consecuencia, el archivo de Docker Compose a utilizar (ej. `docker-compose.dev.yml`).
 
-#!/bin/bash
+### 3. Provisionamiento Base (`install_docker`, `setup_ssh`, `setup_github_ssh`)
 
-# Cargar variables desde el .env
-if [ ! -f ".env" ]; then
-  echo "❌ Archivo .env no encontrado."
-  exit 1
-fi
-export $(grep -v '^#' .env | xargs)
+* **Instalación de Docker:** Instala **Docker Engine** y el **plugin de Docker Compose v2** (`docker compose`). Luego añade al usuario actual al **grupo `docker`** (`sudo usermod -aG docker $USER`), lo que permite ejecutar comandos de Docker sin `sudo` (requiere reiniciar sesión).
+* **Seguridad SSH y Respaldo (`setup_ssh`)**:
+    * **Respaldo Crítico:** Antes de cualquier cambio, se crea una **copia de seguridad** del archivo `/etc/ssh/sshd_config` con un *timestamp*.
+    * **Autenticación de Clave:** Se fuerza el uso de **pares de claves SSH** al deshabilitar el *login* por contraseña (`PasswordAuthentication no`) y el *login* de *root* (`PermitRootLogin no`), reforzando la seguridad.
+* **Claves GitHub (`setup_github_ssh`)**: Se genera un par de claves SSH (solo si no existe, garantizando la **idempotencia**). La prueba de conexión a GitHub utiliza la lógica **`|| true`** para evitar que el script falle debido a los códigos de retorno no-cero de las pruebas de SSH.
 
-# Crear el usuario si no existe
-if id "$SYSTEM_USER" &>/dev/null; then
-  echo "✅ Usuario $SYSTEM_USER ya existe"
-else
-  sudo adduser --disabled-password --gecos "" "$SYSTEM_USER"
-  echo "🔧 Usuario $SYSTEM_USER creado"
-fi
+### 4. Despliegue del Proyecto (`clone_repository`, `setup_project`)
 
-# Instalar Apache, PHP y MySQL Server
-echo "📦 Instalando Apache, PHP y MySQL..."
-sudo apt update
-sudo apt install -y apache2 php libapache2-mod-php mysql-server git unzip
+* **Clonación Idempotente:** Si el directorio ya existe, `clone_repository` intenta actualizarlo con **`git pull origin main || git pull origin master`**, gestionando las ramas principales comunes.
+* **Orquestación Docker:** La función `setup_project` utiliza la bandera **`-T`** en `docker compose exec` (ej. `composer install`). Esta bandera evita la **asignación de TTY** (terminal), una buena práctica al ejecutar comandos dentro de contenedores de forma no interactiva.
 
-# Clonar el repositorio en public_html
-USER_HOME="/home/$SYSTEM_USER"
-WEB_DIR="$USER_HOME/public_html"
+---
 
-sudo -u "$SYSTEM_USER" mkdir -p "$WEB_DIR"
-sudo -u "$SYSTEM_USER" git clone "$GIT_REPO" "$WEB_DIR"
+## 🔎 Enfoque Académico: Expresiones Regulares y Seguridad
 
-# Establecer permisos
-sudo chown -R "$SYSTEM_USER":"$SYSTEM_USER" "$WEB_DIR"
+### Uso de Expresiones Regulares (RegEx) en `sed`
 
-# Configurar Apache virtual host
-VHOST_FILE="/etc/apache2/sites-available/${SYSTEM_USER}.conf"
-sudo tee "$VHOST_FILE" > /dev/null <<EOF
-<VirtualHost *:80>
-    ServerAdmin webmaster@localhost
-    DocumentRoot $WEB_DIR
-    <Directory $WEB_DIR>
-        Options Indexes FollowSymLinks
-        AllowOverride All
-        Require all granted
-    </Directory>
-    ErrorLog \${APACHE_LOG_DIR}/${SYSTEM_USER}_error.log
-    CustomLog \${APACHE_LOG_DIR}/${SYSTEM_USER}_access.log combined
-</VirtualHost>
-EOF
+El script utiliza el comando `sed` (Stream Editor) con expresiones regulares para modificar archivos de configuración de manera precisa y robusta.
 
-sudo a2ensite "${SYSTEM_USER}.conf"
-sudo a2dissite 000-default.conf
-sudo systemctl reload apache2
-
-# Configurar MySQL si hay datos
-if [ -n "$DB_NAME" ]; then
-  echo "📂 Configurando base de datos MySQL..."
-  
-  sudo mysql <<EOF
-ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASSWORD';
-CREATE DATABASE IF NOT EXISTS $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';
-GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';
-FLUSH PRIVILEGES;
-EOF
-
-  echo "✅ Base de datos $DB_NAME y usuario $DB_USER configurados."
-fi
-
-# Reiniciar Apache
-sudo systemctl restart apache2
-
-echo "🎉 Instalación y configuración completa. Sitio funcionando en http://localhost/"
-
-🔢 Uso
-
-Clonar este repositorio en tu servidor
-
-Copiar .env.example a .env y editar con tus valores
-
-cp .env.example .env
-nano .env
-
-Dar permisos de ejecución y ejecutar el script:
-
-chmod +x setup_php_stack.sh
-./setup_php_stack.sh
-
-📃 Resultado esperado
-
-Usuario creado y repositorio clonado en /home/usuario/public_html
-
-Apache configurado para servir desde ese directorio
-
-Base de datos creada y enlazada
-
-🚀 Listo para trabajar con PHP y MySQL en entorno local.
+**Ejemplo en `setup_ssh`:**
+```bash
+sudo sed -i -E 's/^\s*#?PermitRootLogin.*/PermitRootLogin no/' "$SSH_CONFIG"
