@@ -50,7 +50,7 @@ load_or_prompt_config() {
     if [ -f "$CONFIG_FILE" ]; then
         # Cargar variables del archivo. Se usa sed para sanitizar las líneas.
         # shellcheck disable=SC1090
-        source <(grep -E '^[A-Z_]+=' "$CONFIG_FILE" | sed 's/^export //')
+        source (grep -E '^[A-Z_]+=' "$CONFIG_FILE" | sed 's/^export //')
     else
         warn "Archivo de configuración $CONFIG_FILE no encontrado. Se solicitará la información."
     fi
